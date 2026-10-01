@@ -98,23 +98,37 @@ async def ensure_binary() -> bool:
     url = f"https://github.com/telemt/telemt/releases/latest/download/{asset}"
     tmp_tar = TELEMT_DIR / asset
     try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=60.0) as client:
+        async with httpx.AsyncClient(
+            follow_redirects=True, timeout=60.0
+        ) as client:
             resp = await client.get(url)
             resp.raise_for_status()
             tmp_tar.write_bytes(resp.content)
         with tarfile.open(tmp_tar, "r:gz") as tf:
-            member = next((m for m in tf.getmembers() if m.name.endswith("telemt") and m.isfile()), None)
+            member = next(
+                (
+                    m
+                    for m in tf.getmembers()
+                    if m.name.endswith("telemt") and m.isfile()
+                ),
+                None,
+            )
             if member is None:
                 raise RuntimeError("باینری telemt در آرشیو پیدا نشد")
             member.name = "telemt"
             tf.extract(member, TELEMT_DIR)
         tmp_tar.unlink(missing_ok=True)
         st = TELEMT_BIN.stat()
-        TELEMT_BIN.chmod(st.st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
-        _log(f"✅ باینری telemt نصب شد ({time.monotonic()-t0:.2f}s)")
+        TELEMT_BIN.chmod(
+            st.st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH
+        )
+        _log(f"✅ باینری telemt نصب شد ({time.monotonic() - t0:.2f}s)")
         return True
     except Exception as exc:
-        _log(f"دانلود/نصب telemt شکست خورد: {exc}\n{traceback.format_exc()}", "error")
+        _log(
+            f"دانلود/نصب telemt شکست خورد: {exc}\n{traceback.format_exc()}",
+            "error",
+        )
         return False
 
 
@@ -133,8 +147,12 @@ def _escape_toml_str(s: str) -> str:
     return s.replace("\\", "\\\\").replace('"', '\\"')
 
 
-def write_config(users: dict, ad_tags: dict, port: int = TELEMT_PORT,
-                  domain: str = DEFAULT_TLS_DOMAIN) -> Path:
+def write_config(
+    users: dict,
+    ad_tags: dict,
+    port: int = TELEMT_PORT,
+    domain: str = DEFAULT_TLS_DOMAIN,
+) -> Path:
     """کانفیگ پایه (بدون دست‌کاری مستقیم [access.users] بعد از این نقطه — کاربرها
     از این به بعد از طریق Control API واقعیِ telemt (/v1/users) مدیریت می‌شن، نه
     بازنویسی فایل؛ اینجا فقط برای bootstrap اولیه لازمه)."""
@@ -175,12 +193,18 @@ def write_config(users: dict, ad_tags: dict, port: int = TELEMT_PORT,
     for uid, secret in users.items():
         lines.append(f'"{_escape_toml_str(uid)}" = "{secret}"')
 
-    tag_lines = [f'"{_escape_toml_str(uid)}" = "{tag}"' for uid, tag in ad_tags.items() if tag]
+    tag_lines = [
+        f'"{_escape_toml_str(uid)}" = "{tag}"'
+        for uid, tag in ad_tags.items()
+        if tag
+    ]
     if tag_lines:
         lines += ["", "[access.user_ad_tags]"] + tag_lines
 
     CONFIG_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    _log(f"کانفیگ نوشته شد -> {len(users)} کاربر، {len(tag_lines)} تگ تبلیغ، پورت {port}")
+    _log(
+        f"کانفیگ نوشته شد -> {len(users)} کاربر، {len(tag_lines)} تگ تبلیغ، پورت {port}"
+    )
     return CONFIG_PATH
 
 
@@ -194,6 +218,7 @@ async def _stream_output(proc: asyncio.subprocess.Process):
             text = line.decode("utf-8", errors="ignore").rstrip()
             # حذف کدهای رنگ ANSI برای خوانایی لاگ
             import re as _re
+
             text = _re.sub(r"\x1b\[[0-9;]*m", "", text)
             if not text:
                 continue
@@ -231,7 +256,9 @@ async def start():
         child_env = os.environ.copy()
         try:
             proc = await asyncio.create_subprocess_exec(
-                str(TELEMT_BIN), "run", str(CONFIG_PATH),
+                TELEMT_BIN,
+                "run",
+                CONFIG_PATH,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 env=child_env,
@@ -247,7 +274,9 @@ async def start():
         if proc.returncode is not None:
             last = "\n".join(m["msg"] for m in _logs[-8:]) or "(لاگی ثبت نشد)"
             _proc = None
-            raise RuntimeError(f"telemt بلافاصله بعد از اجرا متوقف شد (کد {proc.returncode}): {last[:400]}")
+            raise RuntimeError(
+                f"telemt بلافاصله بعد از اجرا متوقف شد (کد {proc.returncode}): {last[:400]}"
+            )
 
         _log(f"✅ telemt بالا اومد (PID={proc.pid}, پورت={TELEMT_PORT})")
         asyncio.create_task(_watch_process(proc))
@@ -262,9 +291,6 @@ async def _watch_process(proc: asyncio.subprocess.Process):
         _log(f"⚠️ telemt با کد {rc} متوقف شد", "warning")
     else:
         _log(f"telemt با کد {rc} خاتمه یافت")
-
-
-
 
 
 async def stop():
@@ -305,7 +331,11 @@ async def api_wait_ready(timeout: float = 15.0) -> bool:
 
 async def api_create_user(uid: str, secret: str) -> Optional[dict]:
     async with httpx.AsyncClient() as client:
-        r = await client.post(f"{API_BASE}/v1/users", json={"username": uid, "secret": secret}, timeout=8.0)
+        r = await client.post(
+            f"{API_BASE}/v1/users",
+            json={"username": uid, "secret": secret},
+            timeout=8.0,
+        )
         if r.status_code == 409:
             return await api_get_user(uid)
         r.raise_for_status()
@@ -354,7 +384,9 @@ async def api_set_ad_tag(uid: str, ad_tag: Optional[str]):
                 f"احتمالاً use_middle_proxy=false است",
                 "error",
             )
-            raise RuntimeError(f"ad_tag ثبت نشد (پاسخ سرور: user_ad_tag={applied!r})")
+            raise RuntimeError(
+                f"ad_tag ثبت نشد (پاسخ سرور: user_ad_tag={applied!r})"
+            )
         if ad_tag:
             _log(f"✅ ad_tag برای {uid[:8]} اعمال شد: {ad_tag!r}")
         return data
@@ -401,13 +433,19 @@ async def _restart_with_config(users: dict, ad_tags: dict, domain: str) -> None:
         try:
             await api_create_user(uid, secret)
         except Exception as exc:
-            _log(f"ساخت/اطمینان از کاربر {uid[:8]} بعد از restart ناموفق بود: {exc}", "warning")
+            _log(
+                f"ساخت/اطمینان از کاربر {uid[:8]} بعد از restart ناموفق بود: {exc}",
+                "warning",
+            )
         tag = ad_tags.get(uid)
         if tag:
             try:
                 await api_set_ad_tag(uid, tag)
             except Exception as exc:
-                _log(f"اعمال ad_tag برای {uid[:8]} بعد از restart ناموفق بود: {exc}", "error")
+                _log(
+                    f"اعمال ad_tag برای {uid[:8]} بعد از restart ناموفق بود: {exc}",
+                    "error",
+                )
 
     _log("✅ restart کامل telemt تموم شد")
 
@@ -459,7 +497,9 @@ async def sync(users: dict, ad_tags: dict, domain: str = DEFAULT_TLS_DOMAIN):
             try:
                 await api_create_user(uid, secret)
             except Exception as exc:
-                _log(f"ساخت کاربر {uid[:8]} در telemt ناموفق بود: {exc}", "error")
+                _log(
+                    f"ساخت کاربر {uid[:8]} در telemt ناموفق بود: {exc}", "error"
+                )
         tag = ad_tags.get(uid)
         try:
             await api_set_ad_tag(uid, tag)
@@ -479,7 +519,9 @@ async def _api_list_usernames() -> set:
         return {item.get("username") for item in items if item.get("username")}
 
 
-def generate_mtproto_link(host: str, port: int, raw_secret: str, domain: str = DEFAULT_TLS_DOMAIN) -> str:
+def generate_mtproto_link(
+    host: str, port: int, raw_secret: str, domain: str = DEFAULT_TLS_DOMAIN
+) -> str:
     return f"tg://proxy?server={host}&port={port}&secret={client_secret(raw_secret, domain)}"
 
 

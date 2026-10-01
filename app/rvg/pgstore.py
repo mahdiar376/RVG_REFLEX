@@ -93,16 +93,35 @@ RETURNING rev
 # پارامترهایی که asyncpg توی DSN می‌فهمه؛ بقیه (مثل channel_binding که Neon
 # اضافه می‌کنه) به‌عنوان server setting فرستاده می‌شن و اتصال رو خراب می‌کنن.
 _DSN_ALLOWED_PARAMS = {
-    "sslmode", "sslrootcert", "sslcert", "sslkey", "sslpassword", "sslcrl",
-    "ssl_min_protocol_version", "ssl_max_protocol_version",
-    "target_session_attrs", "krbsrvname", "gsslib", "host", "port",
-    "user", "password", "dbname", "passfile", "service",
+    "sslmode",
+    "sslrootcert",
+    "sslcert",
+    "sslkey",
+    "sslpassword",
+    "sslcrl",
+    "ssl_min_protocol_version",
+    "ssl_max_protocol_version",
+    "target_session_attrs",
+    "krbsrvname",
+    "gsslib",
+    "host",
+    "port",
+    "user",
+    "password",
+    "dbname",
+    "passfile",
+    "service",
 }
 
 
 def _env_url() -> str:
-    for name in ("RVG_DATABASE_URL", "DATABASE_URL", "POSTGRES_URL",
-                 "POSTGRESQL_URL", "DATABASE_PRIVATE_URL"):
+    for name in (
+        "RVG_DATABASE_URL",
+        "DATABASE_URL",
+        "POSTGRES_URL",
+        "POSTGRESQL_URL",
+        "DATABASE_PRIVATE_URL",
+    ):
         val = os.environ.get(name, "").strip()
         if val and val.split(":", 1)[0].lower().startswith("postgres"):
             return val
@@ -122,15 +141,28 @@ def _normalize_url(url: str) -> str:
         return ""
     try:
         parts = urlsplit(url)
-        scheme = parts.scheme.split("+", 1)[0].lower()  # postgresql+asyncpg -> postgresql
+        scheme = parts.scheme.split("+", 1)[
+            0
+        ].lower()  # postgresql+asyncpg -> postgresql
         if scheme == "postgres":
             scheme = "postgresql"
-        query = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True)
-                 if k.lower() in _DSN_ALLOWED_PARAMS]
-        dropped = [k for k, _ in parse_qsl(parts.query) if k.lower() not in _DSN_ALLOWED_PARAMS]
+        query = [
+            (k, v)
+            for k, v in parse_qsl(parts.query, keep_blank_values=True)
+            if k.lower() in _DSN_ALLOWED_PARAMS
+        ]
+        dropped = [
+            k
+            for k, _ in parse_qsl(parts.query)
+            if k.lower() not in _DSN_ALLOWED_PARAMS
+        ]
         if dropped:
-            logger.info(f"پارامترهای {dropped} از آدرس دیتابیس حذف شدند (asyncpg پشتیبانی نمی‌کند).")
-        return urlunsplit((scheme, parts.netloc, parts.path, urlencode(query), ""))
+            logger.info(
+                f"پارامترهای {dropped} از آدرس دیتابیس حذف شدند (asyncpg پشتیبانی نمی‌کند)."
+            )
+        return urlunsplit(
+            (scheme, parts.netloc, parts.path, urlencode(query), "")
+        )
     except Exception:
         return url
 
@@ -170,13 +202,21 @@ def _ensure_driver() -> bool:
         return True
     try:
         import asyncpg as _apg
+
         asyncpg = _apg
         return True
     except ImportError:
         pass
     logger.info("درایور asyncpg نصب نیست — در حال نصب خودکار...")
-    base = [sys.executable, "-m", "pip", "install", "--quiet",
-            "--disable-pip-version-check", "asyncpg>=0.29"]
+    base = [
+        sys.executable,
+        "-m",
+        "pip",
+        "install",
+        "--quiet",
+        "--disable-pip-version-check",
+        "asyncpg>=0.29",
+    ]
     last_err = ""
     for cmd in (base, base + ["--user"], base + ["--break-system-packages"]):
         try:
@@ -190,6 +230,7 @@ def _ensure_driver() -> bool:
     importlib.invalidate_caches()
     try:
         import site
+
         user_site = site.getusersitepackages()
         if user_site and user_site not in sys.path:
             site.addsitedir(user_site)
@@ -197,6 +238,7 @@ def _ensure_driver() -> bool:
         pass
     try:
         import asyncpg as _apg
+
         asyncpg = _apg
         logger.info("asyncpg با موفقیت نصب شد.")
         return True
@@ -208,7 +250,10 @@ def _ensure_driver() -> bool:
 
 async def _connect_one():
     return await asyncpg.connect(
-        DATABASE_URL, timeout=10, command_timeout=15, statement_cache_size=0,
+        DATABASE_URL,
+        timeout=10,
+        command_timeout=15,
+        statement_cache_size=0,
         server_settings={"application_name": "rvg-gateway"},
     )
 
@@ -221,7 +266,12 @@ async def _ensure_schema(conn):
 
 # ── راه‌اندازی هم‌زمان (موقع import) ──────────────────────────────────────────
 def _safe_name(name: str) -> bool:
-    return bool(name) and "/" not in name and "\\" not in name and name not in (".", "..")
+    return (
+        bool(name)
+        and "/" not in name
+        and "\\" not in name
+        and name not in (".", "..")
+    )
 
 
 def _write_local_file(name: str, content: bytes | None):
@@ -234,7 +284,10 @@ def _write_local_file(name: str, content: bytes | None):
         return
     _data_dir.mkdir(parents=True, exist_ok=True)
     digest = hashlib.sha256(content).hexdigest()
-    if path.is_file() and hashlib.sha256(path.read_bytes()).hexdigest() == digest:
+    if (
+        path.is_file()
+        and hashlib.sha256(path.read_bytes()).hexdigest() == digest
+    ):
         _file_hashes[name] = digest
         return
     tmp = path.with_name(path.name + ".pgtmp")
@@ -265,7 +318,9 @@ async def _boot(secret_candidate: str | None):
             "INSERT INTO rvg_meta (key, value) VALUES ('secret', $1) ON CONFLICT (key) DO NOTHING",
             secret_candidate or secrets.token_urlsafe(32),
         )
-        BOOT["secret"] = await conn.fetchval("SELECT value FROM rvg_meta WHERE key = 'secret'")
+        BOOT["secret"] = await conn.fetchval(
+            "SELECT value FROM rvg_meta WHERE key = 'secret'"
+        )
         rows = await conn.fetch("SELECT name, content FROM rvg_files")
         for r in rows:
             try:
@@ -299,9 +354,13 @@ def bootstrap(data_dir: Path, secret_candidate: str | None = None) -> dict:
     t.start()
     t.join(60)
     if BOOT["ok"]:
-        logger.info(f"PostgreSQL آماده است ({_safe_host()}) — {BOOT['files_restored']} فایل بازگردانی شد.")
+        logger.info(
+            f"PostgreSQL آماده است ({_safe_host()}) — {BOOT['files_restored']} فایل بازگردانی شد."
+        )
     else:
-        logger.error(f"راه‌اندازی اولیه‌ی PostgreSQL ناموفق بود: {BOOT['error'] or 'timeout'}")
+        logger.error(
+            f"راه‌اندازی اولیه‌ی PostgreSQL ناموفق بود: {BOOT['error'] or 'timeout'}"
+        )
     return BOOT
 
 
@@ -325,8 +384,12 @@ async def _open() -> bool:
     global _pool, _connected, _last_error
     try:
         _pool = await asyncpg.create_pool(
-            DATABASE_URL, min_size=1, max_size=max(2, POOL_MAX), timeout=10,
-            command_timeout=15, statement_cache_size=0,
+            DATABASE_URL,
+            min_size=1,
+            max_size=max(2, POOL_MAX),
+            timeout=10,
+            command_timeout=15,
+            statement_cache_size=0,
             max_inactive_connection_lifetime=300,
             server_settings={"application_name": "rvg-gateway"},
         )
@@ -366,7 +429,7 @@ def _on_notify(_conn, _pid, _channel, payload):
         except Exception:
             pass
     elif kind == "file" and msg.get("name"):
-        asyncio.get_running_loop().create_task(_pull_file(str(msg["name"])))
+        asyncio.get_running_loop().create_task(_pull_file(msg["name"]))
 
 
 async def _start_listener():
@@ -378,7 +441,9 @@ async def _start_listener():
         _listen_conn = conn
     except Exception as e:
         _listen_conn = None
-        logger.info(f"LISTEN روی PostgreSQL فعال نشد ({e}) — همگام‌سازی دوره‌ای جایگزین است.")
+        logger.info(
+            f"LISTEN روی PostgreSQL فعال نشد ({e}) — همگام‌سازی دوره‌ای جایگزین است."
+        )
 
 
 async def _close_listener():
@@ -419,9 +484,13 @@ async def _supervisor():
         try:
             if _pool is None:
                 if await _open():
-                    await _run_state_handler()   # بعد از وصل شدن دیرهنگام: همگام‌سازی کامل
+                    await (
+                        _run_state_handler()
+                    )  # بعد از وصل شدن دیرهنگام: همگام‌سازی کامل
                 continue
-            rev = await _pool.fetchval("SELECT rev FROM rvg_kv WHERE key = 'state'")
+            rev = await _pool.fetchval(
+                "SELECT rev FROM rvg_kv WHERE key = 'state'"
+            )
             if not _connected:
                 logger.info("اتصال PostgreSQL دوباره برقرار شد.")
             _connected = True
@@ -433,7 +502,10 @@ async def _supervisor():
             await _sync_files_once()
             if time.time() - last_cleanup > 3600:
                 last_cleanup = time.time()
-                await _pool.execute("DELETE FROM rvg_sessions WHERE expires_at < $1", time.time())
+                await _pool.execute(
+                    "DELETE FROM rvg_sessions WHERE expires_at < $1",
+                    time.time(),
+                )
         except asyncio.CancelledError:
             raise
         except Exception as e:
@@ -479,7 +551,9 @@ async def stop():
 async def load_state():
     """برمی‌گردونه: dict یا None (اگه هنوز چیزی ذخیره نشده). روی خطا exception می‌ده."""
     global _last_rev
-    row = await _pool.fetchrow("SELECT value::text AS v, rev FROM rvg_kv WHERE key = 'state'")
+    row = await _pool.fetchrow(
+        "SELECT value::text AS v, rev FROM rvg_kv WHERE key = 'state'"
+    )
     if not row:
         return None
     _last_rev = int(row["rev"])
@@ -494,10 +568,15 @@ async def save_state(data: dict) -> int:
             rev = int(await conn.fetchval(UPSERT_STATE_SQL, payload, WORKER_ID))
             if time.time() - _last_snapshot > SNAPSHOT_EVERY:
                 await conn.execute(
-                    "INSERT INTO rvg_state_snapshots (value, rev) VALUES ($1::jsonb, $2)", payload, rev)
+                    "INSERT INTO rvg_state_snapshots (value, rev) VALUES ($1::jsonb, $2)",
+                    payload,
+                    rev,
+                )
                 await conn.execute(
                     "DELETE FROM rvg_state_snapshots WHERE id NOT IN "
-                    "(SELECT id FROM rvg_state_snapshots ORDER BY id DESC LIMIT $1)", SNAPSHOT_KEEP)
+                    "(SELECT id FROM rvg_state_snapshots ORDER BY id DESC LIMIT $1)",
+                    SNAPSHOT_KEEP,
+                )
                 _last_snapshot = time.time()
             await _notify(conn, "state", rev=rev)
     _last_rev = rev
@@ -513,18 +592,24 @@ async def session_create(token: str, expires_at: float):
     await _pool.execute(
         "INSERT INTO rvg_sessions (token_hash, expires_at) VALUES ($1, $2) "
         "ON CONFLICT (token_hash) DO UPDATE SET expires_at = EXCLUDED.expires_at",
-        _th(token), float(expires_at))
+        _th(token),
+        float(expires_at),
+    )
 
 
 async def session_get(token: str):
     """زمان انقضا (float) یا None."""
-    val = await _pool.fetchval("SELECT expires_at FROM rvg_sessions WHERE token_hash = $1", _th(token))
+    val = await _pool.fetchval(
+        "SELECT expires_at FROM rvg_sessions WHERE token_hash = $1", _th(token)
+    )
     return float(val) if val is not None else None
 
 
 async def session_delete(token: str):
     async with _pool.acquire() as conn:
-        await conn.execute("DELETE FROM rvg_sessions WHERE token_hash = $1", _th(token))
+        await conn.execute(
+            "DELETE FROM rvg_sessions WHERE token_hash = $1", _th(token)
+        )
         await _notify(conn, "sessions")
 
 
@@ -536,14 +621,22 @@ async def sessions_reset(keep_token: str | None, expires_at: float):
             if keep_token:
                 await conn.execute(
                     "INSERT INTO rvg_sessions (token_hash, expires_at) VALUES ($1, $2)",
-                    _th(keep_token), float(expires_at))
+                    _th(keep_token),
+                    float(expires_at),
+                )
             await _notify(conn, "sessions")
 
 
 # ── فایل‌ها ──────────────────────────────────────────────────────────────────
 def _sync_names() -> list:
-    extra = [n.strip() for n in os.environ.get("RVG_PG_SYNC_FILES", "").split(",") if n.strip()]
-    return [n for n in dict.fromkeys([*DEFAULT_SYNC_FILES, *extra]) if _safe_name(n)]
+    extra = [
+        n.strip()
+        for n in os.environ.get("RVG_PG_SYNC_FILES", "").split(",")
+        if n.strip()
+    ]
+    return [
+        n for n in dict.fromkeys([*DEFAULT_SYNC_FILES, *extra]) if _safe_name(n)
+    ]
 
 
 async def _sync_files_once():
@@ -564,12 +657,17 @@ async def _sync_files_once():
                         "INSERT INTO rvg_files (name, content, sha256) VALUES ($1, $2, $3) "
                         "ON CONFLICT (name) DO UPDATE SET content = EXCLUDED.content, "
                         "sha256 = EXCLUDED.sha256, updated_at = now()",
-                        name, content, digest)
+                        name,
+                        content,
+                        digest,
+                    )
                     await _notify(conn, "file", name=name)
                 _file_hashes[name] = digest
             elif _file_hashes.get(name):
                 async with _pool.acquire() as conn:
-                    await conn.execute("DELETE FROM rvg_files WHERE name = $1", name)
+                    await conn.execute(
+                        "DELETE FROM rvg_files WHERE name = $1", name
+                    )
                     await _notify(conn, "file", name=name)
                 _file_hashes[name] = None
         except Exception as e:
@@ -580,7 +678,9 @@ async def _pull_file(name: str):
     if not _safe_name(name) or _pool is None:
         return
     try:
-        content = await _pool.fetchval("SELECT content FROM rvg_files WHERE name = $1", name)
+        content = await _pool.fetchval(
+            "SELECT content FROM rvg_files WHERE name = $1", name
+        )
         _write_local_file(name, bytes(content) if content is not None else None)
     except Exception as e:
         logger.debug(f"دریافت فایل {name} از PostgreSQL ناموفق بود: {e}")

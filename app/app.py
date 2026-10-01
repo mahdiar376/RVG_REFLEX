@@ -13,6 +13,7 @@ HTML dashboard) lives UNMODIFIED in app/rvg/. This file only:
   4. exposes a small native-Reflex landing page ("/") with live stats and a
      button that opens the RVG panel.
 """
+
 import asyncio
 import logging
 import os
@@ -34,7 +35,12 @@ def _pick_data_dir() -> str:
     writable on Reflex Cloud). Use the first writable candidate. Local disk is
     NOT persistent across restarts there -> set DATABASE_URL (PostgreSQL); the
     local folder is then only a cache/backup."""
-    for cand in (os.environ.get("DATA_DIR"), "/data", str(ROOT / ".rvg_data"), "/tmp/rvg_data"):
+    for cand in (
+        os.environ.get("DATA_DIR"),
+        "/data",
+        str(ROOT / ".rvg_data"),
+        "/tmp/rvg_data",
+    ):
         if not cand:
             continue
         try:
@@ -45,6 +51,7 @@ def _pick_data_dir() -> str:
             probe.unlink()
             return str(p)
         except Exception:
+            logging.exception("Unexpected error")
             continue
     return "/tmp"
 
@@ -54,7 +61,7 @@ os.environ["DATA_DIR"] = _pick_data_dir()
 # RVG modules import each other with top-level names (central, pages, protocol.*,
 # `from main import ...`), so its folder must be first on sys.path.
 if str(RVG_DIR) not in sys.path:
-    sys.path.insert(0, str(RVG_DIR))
+    sys.path.insert(0, RVG_DIR)
 
 # ── 2. load RVG (import errors are shown on the landing page, not swallowed) ──
 rvg_main = None
@@ -77,7 +84,9 @@ if rvg_main is not None:
         async with _lock:
             if _state["started"]:
                 return
-            _state["started"] = True  # set first: never retry a failing startup per-request
+            _state["started"] = (
+                True  # set first: never retry a failing startup per-request
+            )
             try:
                 await _orig_startup()
             except Exception:
@@ -127,6 +136,7 @@ def _backend_base() -> str:
 
         url = (get_config().api_url or "").rstrip("/")
     except Exception:
+        logging.exception("Unexpected error")
         url = ""
     return "" if (not url or "localhost" in url or "127.0.0.1" in url) else url
 
@@ -154,9 +164,14 @@ class PanelState(rx.State):
             self.uptime = m.uptime()
             self.connections = len(m.connections)
             self.links_total = len(links)
-            self.links_active = sum(1 for link in links.values() if m.is_link_allowed(link))
+            self.links_active = sum(
+                1 for link in links.values() if m.is_link_allowed(link)
+            )
             self.traffic = m.fmt_bytes(int(m.stats["total_bytes"]))
-            if getattr(m, "pgstore", None) is not None and m.pgstore.is_active():
+            if (
+                getattr(m, "pgstore", None) is not None
+                and m.pgstore.is_active()
+            ):
                 self.storage = "postgres"
             elif m.REDIS_CONNECTED:
                 self.storage = "redis"
@@ -165,6 +180,7 @@ class PanelState(rx.State):
             self.error = ""
             self.ready = True
         except Exception as exc:
+            logging.exception("Unexpected error")
             self.error = f"{type(exc).__name__}: {exc}"
 
 
@@ -184,7 +200,12 @@ def index() -> rx.Component:
     return rx.el.div(
         rx.container(
             rx.vstack(
-                rx.image(src="/placeholder.svg", width="72px", height="72px", alt="RVG"),
+                rx.image(
+                    src="/placeholder.svg",
+                    width="72px",
+                    height="72px",
+                    alt="RVG",
+                ),
                 rx.heading("RVG Gateway", size="9"),
                 rx.text(
                     "پنل مدیریت پروکسی چندپروتکلی — VLESS · Trojan · Shadowsocks · MTProto",
@@ -194,7 +215,12 @@ def index() -> rx.Component:
                 ),
                 rx.cond(
                     PanelState.error != "",
-                    rx.callout(PanelState.error, icon="triangle_alert", color_scheme="red", width="100%"),
+                    rx.callout(
+                        PanelState.error,
+                        icon="triangle_alert",
+                        color_scheme="red",
+                        width="100%",
+                    ),
                 ),
                 rx.grid(
                     stat_card("زمان فعالیت", PanelState.uptime),
@@ -212,9 +238,16 @@ def index() -> rx.Component:
                     rx.button(
                         "ورود به پنل مدیریت",
                         size="3",
-                        on_click=rx.call_script(f"window.location.href='{PANEL_URL}'"),
+                        on_click=rx.call_script(
+                            f"window.location.href='{PANEL_URL}'"
+                        ),
                     ),
-                    rx.button("بروزرسانی آمار", size="3", variant="soft", on_click=PanelState.refresh),
+                    rx.button(
+                        "بروزرسانی آمار",
+                        size="3",
+                        variant="soft",
+                        on_click=PanelState.refresh,
+                    ),
                     spacing="3",
                     wrap="wrap",
                     justify="center",
@@ -230,7 +263,7 @@ def index() -> rx.Component:
 
 
 app = rx.App(
-    theme=rx.theme(appearance="dark", accent_color="teal", radius="large"),
+    theme=rx.theme(appearance="light", accent_color="teal", radius="large"),
     api_transformer=rvg_main.app if rvg_main is not None else None,
 )
 app.add_page(index, route="/", title="RVG Gateway", on_load=PanelState.refresh)
